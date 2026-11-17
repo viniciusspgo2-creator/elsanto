@@ -1,0 +1,4 @@
+import {NextResponse} from 'next/server';import {db} from '@/lib/db';import {requireRole,makeToken} from '@/lib/security';import {z} from 'zod';
+const input=z.object({name:z.string().min(1).max(30)});
+export async function GET(){if(!await requireRole(['ADMIN','MANAGER','CASHIER']))return NextResponse.json({error:'Não autorizado'},{status:401});return NextResponse.json({tables:await db.restaurantTable.findMany({orderBy:{name:'asc'},include:{_count:{select:{orders:true}}}})})}
+export async function POST(req:Request){if(!await requireRole(['ADMIN','MANAGER']))return NextResponse.json({error:'Não autorizado'},{status:401});try{const x=input.parse(await req.json());const table=await db.restaurantTable.create({data:{name:x.name,shortToken:makeToken()}});return NextResponse.json({table})}catch{return NextResponse.json({error:'Mesa inválida ou já existente'},{status:400})}}

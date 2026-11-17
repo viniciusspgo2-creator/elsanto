@@ -1,0 +1,351 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  CASHIER
+  KITCHEN
+  DRIVER
+}
+enum OrderKind {
+  DELIVERY
+  TAKEAWAY
+  DINE_IN
+}
+enum OrderSource {
+  WEB
+  TABLE
+  POS
+}
+enum OrderStatus {
+  RECEIVED
+  CONFIRMED
+  PREPARING
+  READY
+  DISPATCHED
+  DELIVERED
+  COMPLETED
+  CANCELED
+}
+enum PaymentStatus {
+  PENDING
+  PAID
+  PARTIALLY_PAID
+  REFUNDED
+}
+enum DeliveryStatus {
+  ASSIGNED
+  ACCEPTED
+  PICKED_UP
+  ON_ROUTE
+  ARRIVED
+  DELIVERED
+  FAILED
+}
+enum DriverAvailability {
+  AVAILABLE
+  BUSY
+  PAUSED
+  OFFLINE
+}
+enum DeliveryPricingMode {
+  FIXED
+  NEIGHBORHOOD
+  DISTANCE
+}
+
+model StaffUser {
+  id           String             @id @default(cuid())
+  email        String             @unique
+  name         String
+  passwordHash String
+  role         UserRole
+  active       Boolean            @default(true)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  driver       DeliveryDriver?
+}
+model MenuCategory {
+  id        String     @id @default(cuid())
+  name      String
+  slug      String     @unique
+  sort      Int        @default(0)
+  active    Boolean    @default(true)
+  items     MenuItem[]
+  createdAt DateTime   @default(now())
+}
+model MenuItem {
+  id           String       @id @default(cuid())
+  categoryId   String
+  category     MenuCategory @relation(fields:[categoryId],references:[id])
+  name         String
+  slug         String       @unique
+  description  String       @default("")
+  imageUrl     String?
+  priceCents   Int?
+  published    Boolean      @default(false)
+  available    Boolean      @default(true)
+  featured     Boolean      @default(false)
+  heat         Int          @default(0)
+  modifiers    Json         @default("[]")
+  allergens    String[]     @default([])
+  sort         Int          @default(0)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  orderItems   OrderItem[]
+  @@index([published,available,sort])
+}
+model Customer {
+  id        String    @id @default(cuid())
+  name      String
+  phone     String
+  createdAt DateTime  @default(now())
+  orders    Order[]
+  @@index([phone])
+}
+model RestaurantTable {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  shortToken   String   @unique
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  orders       Order[]
+}
+model Order {
+  id                String         @id @default(cuid())
+  number            Int            @unique @default(autoincrement())
+  trackingTokenHash String         @unique
+  idempotencyKey    String         @unique
+  customerId        String?
+  customer          Customer?      @relation(fields:[customerId],references:[id])
+  customerName      String
+  customerPhone     String?
+  kind              OrderKind
+  source            OrderSource    @default(WEB)
+  status            OrderStatus    @default(RECEIVED)
+  paymentStatus     PaymentStatus  @default(PENDING)
+  paymentMethod     String?
+  tableId           String?
+  table             RestaurantTable? @relation(fields:[tableId],references:[id])
+  address           Json?
+  note              String?        @db.VarChar(1000)
+  subtotalCents     Int
+  deliveryFeeCents  Int            @default(0)
+  discountCents     Int            @default(0)
+  totalCents        Int
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  completedAt       DateTime?
+  items             OrderItem[]
+  events            OrderEvent[]
+  delivery          Delivery?
+  @@index([status,createdAt])
+  @@index([customerPhone])
+}
+model OrderItem {
+  id           String    @id @default(cuid())
+  orderId      String
+  order        Order     @relation(fields:[orderId],references:[id],onDelete:Cascade)
+  menuItemId   String?
+  menuItem     MenuItem? @relation(fields:[menuItemId],references:[id],onDelete:SetNull)
+  nameSnapshot String
+  quantity     Int
+  unitCents    Int
+  modifiers    Json      @default("[]")
+  lineCents    Int
+}
+model OrderEvent {
+  id         String      @id @default(cuid())
+  orderId    String
+  order      Order       @relation(fields:[orderId],references:[id],onDelete:Cascade)
+  fromStatus OrderStatus?
+  toStatus   OrderStatus
+  note       String?
+  actorId    String?
+  createdAt  DateTime    @default(now())
+  @@index([orderId,createdAt])
+}
+model DeliveryDriver {
+  id           String             @id @default(cuid())
+  staffId      String             @unique
+  staff        StaffUser          @relation(fields:[staffId],references:[id])
+  availability DriverAvailability @default(OFFLINE)
+  consentGps   Boolean            @default(false)
+  assignments  Delivery[]
+}
+model Delivery {
+  id            String         @id @default(cuid())
+  orderId       String         @unique
+  order         Order          @relation(fields:[orderId],references:[id])
+  driverId      String?
+  driver        DeliveryDriver? @relation(fields:[driverId],references:[id])
+  status        DeliveryStatus @default(ASSIGNED)
+  assignedAt    DateTime       @default(now())
+  startedAt     DateTime?
+  completedAt   DateTime?
+  lastLat       Float?
+  lastLng       Float?
+  lastAccuracy  Float?
+  lastGpsAt     DateTime?
+  locations     DeliveryLocation[]
+  incidents     DeliveryIncident[]
+  @@index([driverId,status])
+}
+model DeliveryLocation {
+  id          String   @id @default(cuid())
+  deliveryId  String
+  delivery    Delivery @relation(fields:[deliveryId],references:[id],onDelete:Cascade)
+  lat         Float
+  lng         Float
+  accuracy    Float
+  capturedAt  DateTime
+  createdAt   DateTime @default(now())
+  @@index([deliveryId,capturedAt])
+}
+model DeliveryIncident {
+  id          String   @id @default(cuid())
+  deliveryId  String
+  delivery    Delivery @relation(fields:[deliveryId],references:[id],onDelete:Cascade)
+  kind        String
+  description String
+  createdAt   DateTime @default(now())
+}
+model SiteConfig {
+  id                    String   @id @default("main")
+  restaurantOpenOverride Boolean?
+  heroTitle             String   @default("A tradição tem sabor. O fogo tem nome.")
+  heroDescription       String   @default("Um pedaço da cultura mexicana no coração de Rio Preto. Descubra aromas, sabores e momentos que merecem ser vividos.")
+  announcement          String   @default("Cocina • Fuego • Tradición")
+  whatsapp              String   @default("5517996437365")
+  deliveryFeeCents      Int      @default(0)
+  deliveryPricingMode   DeliveryPricingMode @default(FIXED)
+  deliveryBaseFeeCents  Int      @default(0)
+  deliveryKmRateCents   Int      @default(0)
+  deliveryFreeAboveCents Int?
+  deliveryMaxKm         Float?
+  restaurantLat         Float?
+  restaurantLng         Float?
+  minOrderCents         Int      @default(0)
+  aiEnabled             Boolean  @default(false)
+  aiProvider            String   @default("mechanical")
+  aiModel               String   @default("")
+  promoEnabled          Boolean  @default(false)
+  promoImageUrl         String?
+  promoTitle            String?
+  updatedAt             DateTime @updatedAt
+}
+model Expense {
+  id          String   @id @default(cuid())
+  description String
+  category    String
+  amountCents Int
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+}
+
+/** Fornecedores da casa (insumos, bebidas, embalagens, serviços). */
+model Supplier {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String   @default("")
+  email     String   @default("")
+  category  String   @default("Geral")
+  note      String   @default("")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  stock     StockItem[]
+}
+
+/** Controle de estoque e insumos com alerta de mínimo. */
+model StockItem {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  unit        String    @default("un")
+  quantity    Float     @default(0)
+  minQuantity Float     @default(0)
+  costCents   Int?
+  supplierId  String?
+  supplier    Supplier? @relation(fields:[supplierId],references:[id])
+  note        String    @default("")
+  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime  @default(now())
+  @@index([quantity])
+}
+
+/** Movimentações financeiras: entradas, saídas, contas a pagar e a receber. */
+model FinancialTransaction {
+  id          String    @id @default(cuid())
+  direction   Direction
+  kind        FinanceKind
+  description String
+  category    String    @default("Geral")
+  amountCents Int
+  method      String    @default("")
+  dueDate     DateTime?
+  paidAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  @@index([kind,paidAt])
+  @@index([dueDate])
+}
+
+enum Direction {
+  INCOME
+  OUTFLOW
+}
+enum FinanceKind {
+  REVENUE
+  EXPENSE
+  PAYABLE
+  RECEIVABLE
+}
+model GalleryImage {
+  id        String   @id @default(cuid())
+  imageUrl  String
+  caption   String?
+  alt       String
+  sort      Int      @default(0)
+  published Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+model BlogPost {
+  id          String    @id @default(cuid())
+  title       String
+  slug        String    @unique
+  excerpt     String
+  content     String
+  imageUrl    String?
+  published   Boolean   @default(false)
+  publishedAt DateTime?
+  updatedAt   DateTime  @updatedAt
+}
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String
+  entityType String
+  entityId   String?
+  details    Json?
+  createdAt  DateTime @default(now())
+  @@index([entityType,createdAt])
+}
+
+/** Bairros elegíveis e suas respectivas taxas. A chave normalizada é única. */
+model DeliveryZone {
+  id               String   @id @default(cuid())
+  name             String
+  neighborhoodKey  String   @unique
+  feeCents         Int
+  minOrderCents    Int      @default(0)
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}

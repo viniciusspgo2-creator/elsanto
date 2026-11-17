@@ -1,0 +1,2 @@
+import {NextResponse} from 'next/server';import {getPublicMenu,getSettings} from '@/lib/catalog';import {databaseConfigured} from '@/lib/db';
+export async function GET(){const [items,settings]=await Promise.all([getPublicMenu(),getSettings()]);return NextResponse.json({items,deliveryFeeCents:settings.deliveryFeeCents,minOrderCents:settings.minOrderCents,open:databaseConfigured()&&settings.restaurantOpenOverride!==false},{headers:{'Cache-Control':'no-store'}})}

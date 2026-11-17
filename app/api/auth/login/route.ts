@@ -1,0 +1,7 @@
+import {NextResponse} from 'next/server';
+import {db,databaseConfigured} from '@/lib/db';
+import {createSession,verifyPassword,SESSION_COOKIE,isSecureCookie} from '@/lib/security';
+import {z} from 'zod';import {checkLimit,sourceIp} from '@/lib/request-limiter';
+const schema=z.object({email:z.email(),password:z.string().min(1).max(256),area:z.enum(['admin','driver']).default('admin')});
+export async function POST(req:Request){const limit=checkLimit('login',sourceIp(req),8,15*60_000);if(!limit.allowed)return NextResponse.json({error:'Muitas tentativas. Tente novamente mais tarde.'},{status:429,headers:{'Retry-After':String(limit.retryAfter)}});if(!databaseConfigured())return NextResponse.json({error:'Banco ainda não configurado.'},{status:503});
+ try{const v=schema.parse(await req.json());const user=await db.staffUser.findUnique({where:{email:v.email.toLowerCase()}});if(!user||!user.active||!verifyPassword(v.password,user.passwordHash)||((v.area==='driver')!==(user.role==='DRIVER')))return NextResponse.json({error:'Credenciais inválidas.'},{status:401});const token=await createSession({id:user.id,name:user.name,role:user.role});const res=NextResponse.json({ok:true,redirect:user.role==='DRIVER'?'/entregador':user.role==='KITCHEN'?'/admin/cozinha':'/admin'});res.cookies.set(SESSION_COOKIE,token,{httpOnly:true,secure:isSecureCookie,sameSite:'lax',path:'/',maxAge:12*60*60});return res;}catch{return NextResponse.json({error:'Preencha e-mail e senha válidos.'},{status:400})}}
